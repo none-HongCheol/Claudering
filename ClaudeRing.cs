@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.0  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.1  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -475,7 +475,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.0";
+        public const string APP_VERSION = "0.9.1";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         public volatile bool UpdateAvailable;
@@ -3146,7 +3146,7 @@ namespace ClaudeRing
         public static void Check(RingApp app, bool manual)
         {
             string url = app.EffectiveUpdateUrl;
-            if (string.IsNullOrEmpty(url)) { if (manual) app.Toast("업데이트 주소가 비어 있어요. 설정 → 일반 → 업데이트에서 넣어 주세요.", 4000); return; }
+            if (string.IsNullOrEmpty(url)) { if (manual) app.Toast("업데이트 주소가 설정돼 있지 않아요.", 4000); return; }
             if (busy) return;
             busy = true;
             ThreadPool.QueueUserWorkItem(_ =>
@@ -5047,11 +5047,6 @@ namespace ClaudeRing
             var upBtn = SBtn("새 버전 확인", false, false);
             upBtn.Click += (s, e) => Updater.Check(app, true);
             sp.Children.Add(SRow("현재 버전", "v" + RingApp.APP_VERSION + " · 켤 때와 30분마다 자동 확인", upBtn));
-            var uu = new TextBox { Text = cfg.UpdateUrl, Width = 300 };
-            Action applyUu = () => { cfg.UpdateUrl = uu.Text.Trim(); Changed(); };
-            uu.LostFocus += (s, e) => applyUu();
-            uu.KeyDown += (s, e) => { if (e.Key == Key.Enter) applyUu(); };
-            sp.Children.Add(SRow("업데이트 주소", "비우면 기본 주소 사용 (none-HongCheol/Claudering)", uu));
 
             sp.Children.Add(Grp("단축키"));
             var hk = new TextBox { Text = cfg.Hotkey, Width = 190 };
