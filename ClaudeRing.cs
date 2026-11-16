@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.2  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.3  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -478,7 +478,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.2";
+        public const string APP_VERSION = "0.9.3";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         public volatile bool UpdateAvailable;
@@ -1445,7 +1445,7 @@ namespace ClaudeRing
         bool running;
         DateTime stepStart, moveStart;
         double fromX, fromY, toX, toY;
-        double dwellMs = 4600;
+        double dwellMs = 5400;
 
         Shapes.Ellipse halo;
         ScaleTransform haloScale;
@@ -1477,11 +1477,11 @@ namespace ClaudeRing
         {
             switch (id)
             {
-                case "ask": return "선택한 내용이나 클립보드를 담아 Claude에게 바로 질문해요. 각자 로그인한 계정으로 열려요.";
-                case "everything": return "내 PC와 회사 서버 공유 폴더까지 색인해서 파일을 빠르게 찾아요. 설정에서 검색할 드라이브를 고를 수 있어요.";
-                case "memo": return "스티커 메모를 열어요. 표시할 모니터·화면 모서리 위치, 새 메모 함께 열기를 설정할 수 있어요.";
-                case "organize": return "마우스가 가리키는 폴더(또는 열린 탐색기)를 기준으로 정리해요. 정리 방식은 실행할 때마다 물어봐요.";
-                case "capture": return "Win+Shift+S 캡처를 실행하고, 지정한 폴더에 자동 저장해요. 저장 위치·확장자를 바꿀 수 있어요.";
+                case "ask": return "① 물어볼 텍스트를 드래그해 선택  ② 물어보기 클릭  →  그 내용을 담아 Claude가 바로 열려요. (로그인된 계정)";
+                case "everything": return "① 파일 검색 클릭  ② 이름 일부만 입력  ③ 결과를 더블클릭해 열기.  내 PC와 회사 서버까지 한 번에 찾아요.";
+                case "memo": return "메모 클릭  →  스티커 메모가 바로 떠요. 설정에서 정한 모니터·모서리에 새 메모가 자리잡아요.";
+                case "organize": return "① 정리할 폴더를 탐색기로 열어두기  ② 파일 정리 클릭  ③ \"어떻게 정리할까요?\"에서 방식 선택.";
+                case "capture": return "화면 캡처 클릭  →  Win+Shift+S가 시작돼요. 영역을 드래그하면 지정한 폴더에 자동 저장(PNG/JPG).";
                 default: return app.LabelFor(id) + " 기능이에요.";
             }
         }
@@ -1505,7 +1505,7 @@ namespace ClaudeRing
 
             // 스텝 구성: 코어(열기) 먼저, 그 다음 채워진 기능 칸들
             steps.Clear();
-            steps.Add(new Step { C = new Point(cx, cy), Core = true, Title = "Claude 열기", Desc = "링 가운데를 누르면 이 PC에 로그인된 Claude가 열려요. 단축키 " + app.Cfg.Hotkey.ToUpperInvariant() + " (또는 마우스 휠 클릭)로 링을 열 수 있어요." });
+            steps.Add(new Step { C = new Point(cx, cy), Core = true, Title = "링 열기 · Claude 열기", Desc = "단축키 " + app.Cfg.Hotkey.ToUpperInvariant() + " (또는 마우스 휠 클릭)로 커서 자리에 링이 열려요. 가운데를 클릭하면 로그인된 Claude가 바로 열려요." });
             string[] slots = app.Cfg.Slots;
             for (int i = 0; i < 9; i++)
             {
