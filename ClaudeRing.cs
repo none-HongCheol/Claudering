@@ -92,6 +92,7 @@ namespace ClaudeRing
         public string WindowCorner = "cursor";          // cursor | center | topleft | topright | bottomleft | bottomright
         public string[] Slots = new string[] { "ask", "everything", "memo", "organize", "capture", null, null, null, null };
         public string ClaudeAppPath = "";
+        public bool TourDone = false;                   // 첫 실행 가이드 투어를 봤는지
         public string EverythingPath = "";
         public string[] SearchRoots = new string[0];     // (고급) 비우면 모든 로컬 드라이브
         public bool IndexLocalDrives = true;             // 이 PC의 로컬 드라이브 모두 색인
@@ -172,6 +173,7 @@ namespace ClaudeRing
                 if (obj.TryGetValue("window_corner", out v) && v is string) cfg.WindowCorner = (string)v;
                 if (obj.TryGetValue("search_keep_query", out v) && v is bool) cfg.SearchKeepQuery = (bool)v;
                 if (obj.TryGetValue("search_default_filter", out v) && v != null) { try { cfg.SearchDefaultFilter = Convert.ToInt32(v, CultureInfo.InvariantCulture); } catch (Exception) { } }
+                if (obj.TryGetValue("tour_done", out v) && v is bool) cfg.TourDone = (bool)v;
                 if (obj.TryGetValue("claude_app_path", out v) && v is string) cfg.ClaudeAppPath = (string)v;
                 if (obj.TryGetValue("everything_path", out v) && v is string) cfg.EverythingPath = (string)v;
                 if (obj.TryGetValue("search_roots", out v)) cfg.SearchRoots = Strings(v);
@@ -259,6 +261,7 @@ namespace ClaudeRing
             sb.AppendLine("  \"search_keep_query\": " + B(SearchKeepQuery) + ",");
             sb.AppendLine("  \"search_default_filter\": " + SearchDefaultFilter.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"slots\": [" + string.Join(", ", Slots.Select(s => Q(s)).ToArray()) + "],");
+            sb.AppendLine("  \"tour_done\": " + B(TourDone) + ",");
             sb.AppendLine("  \"claude_app_path\": " + Q(ClaudeAppPath) + ",");
             sb.AppendLine("  \"everything_path\": " + Q(EverythingPath) + ",");
             sb.AppendLine("  \"index_local_drives\": " + B(IndexLocalDrives) + ",");
@@ -541,6 +544,7 @@ namespace ClaudeRing
             bool ok = ApplyHotkey(Cfg.Hotkey);
             var menu = new WinForms.ContextMenuStrip();
             menu.Items.Add("링 열기", null, (s, e) => ring.ShowAtScreenCenter());
+            menu.Items.Add("둘러보기", null, (s, e) => ShowTour());
             menu.Items.Add("설정", null, (s, e) => OpenSettings(null));
             menu.Items.Add(new WinForms.ToolStripSeparator());
             menu.Items.Add("종료", null, (s, e) => Quit());
@@ -565,7 +569,16 @@ namespace ClaudeRing
                 once.Start();
             }
 
-            if (demo) ring.ShowAtScreenCenter();
+            // 첫 실행이면 둘러보기(가이드 투어)를 자동으로 띄워요. 그 외 --demo 면 링을 보여줘요.
+            if (!Cfg.TourDone)
+            {
+                Cfg.TourDone = true;
+                try { Cfg.Save(); } catch (Exception) { }
+                var once2 = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
+                once2.Tick += (s, e) => { once2.Stop(); try { ShowTour(); } catch (Exception ex) { Log("투어 오류: " + ex.Message); } };
+                once2.Start();
+            }
+            else if (demo) ring.ShowAtScreenCenter();
         }
 
         IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -718,6 +731,13 @@ namespace ClaudeRing
         public void ShowRingCenter()
         {
             ring.ShowAtScreenCenter();
+        }
+
+        public void ShowTour()
+        {
+            if (ring != null && ring.IsVisible) ring.HideRing();
+            var t = new TourWindow(this);
+            t.StartTour();
         }
 
         // 설정 창은 하나뿐: section = null(일반) | "ring" | "slots" | "slot:3" | 기능 id(예: "everything")
@@ -1404,6 +1424,296 @@ namespace ClaudeRing
             string id = slots[i];
             HideRing();
             Dispatcher.BeginInvoke(new Action(() => app.RunAction(id)), DispatcherPriority.Background);
+        }
+    }
+
+    // ------------------------------------------------------------ 가이드 투어 (움직이는 둘러보기)
+    // 첫 실행 때 자동으로 뜨고, 링을 돌며 각 기능을 하이라이트+설명으로 하나씩 짚어줍니다.
+    class TourWindow : Window
+    {
+        const double BUBBLE = 64, CORE = 92;
+        static readonly Color IVORY = Color.FromRgb(0xFA, 0xF9, 0xF5);
+
+        class Step { public Point C; public string Title; public string Desc; public bool Core; }
+
+        RingApp app;
+        Canvas root;
+        double cx, cy, R;
+        Color accent;
+        System.Collections.Generic.List<Step> steps = new System.Collections.Generic.List<Step>();
+        int cur = -1;
+        bool running;
+        DateTime stepStart, moveStart;
+        double fromX, fromY, toX, toY;
+        double dwellMs = 4600;
+
+        Shapes.Ellipse halo;
+        ScaleTransform haloScale;
+        Border caption;
+        TextBlock capProg, capTitle, capDesc;
+        Button nextBtn;
+        double capW, capH;
+
+        public TourWindow(RingApp owner)
+        {
+            app = owner;
+            WindowStyle = WindowStyle.None;
+            AllowsTransparency = true;
+            ResizeMode = ResizeMode.NoResize;
+            ShowInTaskbar = false;
+            Topmost = true;
+            Background = new SolidColorBrush(Color.FromArgb(0x66, 0, 0, 0));
+            root = new Canvas();
+            Content = root;
+            KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Escape) Close();
+                else if (e.Key == Key.Right || e.Key == Key.Enter || e.Key == Key.Space) Advance();
+                else if (e.Key == Key.Left) Back();
+            };
+        }
+
+        string DescFor(string id)
+        {
+            switch (id)
+            {
+                case "ask": return "선택한 내용이나 클립보드를 담아 Claude에게 바로 질문해요. 각자 로그인한 계정으로 열려요.";
+                case "everything": return "내 PC와 회사 서버 공유 폴더까지 색인해서 파일을 빠르게 찾아요. 설정에서 검색할 드라이브를 고를 수 있어요.";
+                case "memo": return "스티커 메모를 열어요. 표시할 모니터·화면 모서리 위치, 새 메모 함께 열기를 설정할 수 있어요.";
+                case "organize": return "마우스가 가리키는 폴더(또는 열린 탐색기)를 기준으로 정리해요. 정리 방식은 실행할 때마다 물어봐요.";
+                case "capture": return "Win+Shift+S 캡처를 실행하고, 지정한 폴더에 자동 저장해요. 저장 위치·확장자를 바꿀 수 있어요.";
+                default: return app.LabelFor(id) + " 기능이에요.";
+            }
+        }
+
+        public void StartTour()
+        {
+            var wa = app.WorkAreaAt(app.CursorDip());
+            double scx = wa.Left + wa.Width / 2, scy = wa.Top + wa.Height / 2;
+            app.Cfg = Config.Load();
+            Theme.Load(app.Cfg);
+            try { accent = (Color)ColorConverter.ConvertFromString(app.Cfg.Accent); }
+            catch (Exception) { accent = Color.FromRgb(0xD9, 0x77, 0x57); }
+            R = app.Cfg.Radius;
+
+            Left = SystemParameters.VirtualScreenLeft;
+            Top = SystemParameters.VirtualScreenTop;
+            Width = SystemParameters.VirtualScreenWidth;
+            Height = SystemParameters.VirtualScreenHeight;
+            cx = scx - Left;
+            cy = scy - Top;
+
+            // 스텝 구성: 코어(열기) 먼저, 그 다음 채워진 기능 칸들
+            steps.Clear();
+            steps.Add(new Step { C = new Point(cx, cy), Core = true, Title = "Claude 열기", Desc = "링 가운데를 누르면 이 PC에 로그인된 Claude가 열려요. 단축키 " + app.Cfg.Hotkey.ToUpperInvariant() + " (또는 마우스 휠 클릭)로 링을 열 수 있어요." });
+            string[] slots = app.Cfg.Slots;
+            for (int i = 0; i < 9; i++)
+            {
+                string id = slots[i];
+                if (id == null || !app.Actions.ContainsKey(id)) continue;
+                double a = (-90 + i * 40) * Math.PI / 180;
+                steps.Add(new Step { C = new Point(cx + Math.Cos(a) * R, cy + Math.Sin(a) * R), Title = app.LabelFor(id), Desc = DescFor(id) });
+            }
+
+            BuildRing(slots);
+            BuildHalo();
+            BuildCaption();
+
+            Show();
+            Activate();
+            Native.SetForegroundWindow(new WindowInteropHelper(this).Handle);
+            Focus();
+
+            GoTo(0, true);
+            running = true;
+            CompositionTarget.Rendering += OnRender;
+        }
+
+        void BuildRing(string[] slots)
+        {
+            var accentBrush = new SolidColorBrush(accent);
+            var guide = new Shapes.Ellipse { Width = 2 * R, Height = 2 * R, IsHitTestVisible = false };
+            guide.Stroke = new SolidColorBrush(Color.FromArgb(0x60, 0xFA, 0xF9, 0xF5));
+            guide.StrokeThickness = 1.5;
+            guide.StrokeDashArray = new DoubleCollection(new double[] { 2, 3 });
+            Canvas.SetLeft(guide, cx - R); Canvas.SetTop(guide, cy - R);
+            root.Children.Add(guide);
+
+            for (int i = 0; i < 9; i++)
+            {
+                string id = slots[i];
+                bool empty = id == null || !app.Actions.ContainsKey(id);
+                double a = (-90 + i * 40) * Math.PI / 180;
+                double bx = cx + Math.Cos(a) * R, by = cy + Math.Sin(a) * R;
+
+                var g = new Grid { Width = BUBBLE, Height = BUBBLE, IsHitTestVisible = false };
+                Canvas.SetLeft(g, bx - BUBBLE / 2); Canvas.SetTop(g, by - BUBBLE / 2);
+                var circle = new Shapes.Ellipse();
+                var icon = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                if (empty)
+                {
+                    circle.Fill = new SolidColorBrush(Color.FromArgb(0x24, 0xFA, 0xF9, 0xF5));
+                    circle.Stroke = new SolidColorBrush(Color.FromArgb(0x80, 0xFA, 0xF9, 0xF5));
+                    circle.StrokeThickness = 2;
+                    circle.StrokeDashArray = new DoubleCollection(new double[] { 3, 2 });
+                    icon.Text = "+"; icon.FontFamily = Theme.Font; icon.FontSize = 22;
+                    icon.Foreground = new SolidColorBrush(Color.FromArgb(0x80, 0xFA, 0xF9, 0xF5));
+                }
+                else
+                {
+                    circle.Fill = Brushes.White;
+                    g.Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 4, Opacity = 0.35, Direction = 270 };
+                    icon.Text = app.Actions[id].Icon;
+                    icon.FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
+                    icon.FontSize = 24;
+                    icon.Foreground = new SolidColorBrush(app.ColorFor(id));
+                }
+                g.Children.Add(circle); g.Children.Add(icon);
+                root.Children.Add(g);
+
+                if (!empty)
+                {
+                    var lb = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(10, 3, 10, 4), IsHitTestVisible = false };
+                    lb.Background = new SolidColorBrush(Color.FromArgb(0xDD, 0x2B, 0x2A, 0x27));
+                    var lt = new TextBlock { Text = app.LabelFor(id), FontFamily = Theme.Font, FontSize = 12.5, Foreground = new SolidColorBrush(IVORY) };
+                    lb.Child = lt;
+                    lb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    double lx = cx + Math.Cos(a) * (R + 60), ly = cy + Math.Sin(a) * (R + 60);
+                    Canvas.SetLeft(lb, lx - lb.DesiredSize.Width / 2);
+                    Canvas.SetTop(lb, ly - lb.DesiredSize.Height / 2);
+                    root.Children.Add(lb);
+                }
+            }
+
+            var core = new Grid { Width = CORE, Height = CORE, IsHitTestVisible = false };
+            core.Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 5, Opacity = 0.4, Direction = 270 };
+            Canvas.SetLeft(core, cx - CORE / 2); Canvas.SetTop(core, cy - CORE / 2);
+            var cc = new Shapes.Ellipse { Fill = accentBrush, Stroke = new SolidColorBrush(IVORY), StrokeThickness = 3 };
+            core.Children.Add(cc);
+            var star = new Shapes.Path { Fill = Brushes.White, Width = 28, Height = 28, Stretch = Stretch.Uniform, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            star.Data = Geometry.Parse("M12,2.5 C12.5,7.3 15.7,10.5 20.5,11 L20.5,13 C15.7,13.5 12.5,16.7 12,21.5 L10,21.5 C9.5,16.7 6.3,13.5 1.5,13 L1.5,11 C6.3,10.5 9.5,7.3 10,2.5 Z");
+            core.Children.Add(star);
+            root.Children.Add(core);
+        }
+
+        void BuildHalo()
+        {
+            halo = new Shapes.Ellipse { IsHitTestVisible = false };
+            halo.Stroke = new SolidColorBrush(accent);
+            halo.StrokeThickness = 4;
+            halo.RenderTransformOrigin = new Point(0.5, 0.5);
+            haloScale = new ScaleTransform(1, 1);
+            halo.RenderTransform = haloScale;
+            root.Children.Add(halo);
+        }
+
+        void BuildCaption()
+        {
+            caption = new Border { CornerRadius = new CornerRadius(16) };
+            caption.Background = new SolidColorBrush(Theme.Bg);
+            caption.BorderBrush = new SolidColorBrush(Theme.Line);
+            caption.BorderThickness = new Thickness(1);
+            caption.Padding = new Thickness(22, 16, 22, 16);
+            caption.Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 6, Opacity = 0.32, Direction = 270 };
+            caption.Width = 420;
+
+            var sp = new StackPanel();
+            capProg = new TextBlock { FontFamily = Theme.Font, FontSize = 11.5, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(accent), Margin = new Thickness(0, 0, 0, 4) };
+            capTitle = new TextBlock { FontFamily = Theme.Font, FontSize = 18, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Theme.Fg) };
+            capDesc = new TextBlock { FontFamily = Theme.Font, FontSize = 12.8, Foreground = new SolidColorBrush(Theme.Fg), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), LineHeight = 20, Opacity = 0.88 };
+            sp.Children.Add(capProg); sp.Children.Add(capTitle); sp.Children.Add(capDesc);
+
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+            var skip = MakeBtn("건너뛰기", false);
+            skip.Click += (s, e) => Close();
+            nextBtn = MakeBtn("다음", true);
+            nextBtn.Margin = new Thickness(8, 0, 0, 0);
+            nextBtn.Click += (s, e) => Advance();
+            btnRow.Children.Add(skip); btnRow.Children.Add(nextBtn);
+            sp.Children.Add(btnRow);
+
+            caption.Child = sp;
+            caption.Measure(new Size(caption.Width, double.PositiveInfinity));
+            capW = caption.Width;
+            capH = caption.DesiredSize.Height;
+            root.Children.Add(caption);
+        }
+
+        Button MakeBtn(string text, bool primary)
+        {
+            var b = new Button { Content = text, FontFamily = Theme.Font, FontSize = 13, Cursor = Cursors.Hand, Padding = new Thickness(16, 7, 16, 8), BorderThickness = new Thickness(0) };
+            var bg = primary ? accent : Theme.Sel;
+            var fg = primary ? Colors.White : Theme.Fg;
+            var tpl = "<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation' TargetType='Button'>"
+                + "<Border CornerRadius='9' Background='{TemplateBinding Background}' Padding='{TemplateBinding Padding}'>"
+                + "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/></Border></ControlTemplate>";
+            b.Template = (ControlTemplate)System.Windows.Markup.XamlReader.Parse(tpl);
+            b.Background = new SolidColorBrush(bg);
+            b.Foreground = new SolidColorBrush(fg);
+            return b;
+        }
+
+        void GoTo(int i, bool instant)
+        {
+            if (i < 0) i = 0;
+            if (i >= steps.Count) { Close(); return; }
+            cur = i;
+            var st = steps[i];
+            double size = (st.Core ? CORE : BUBBLE) + 26;
+            halo.Width = halo.Height = size;
+            double hx = st.C.X, hy = st.C.Y;
+            fromX = instant ? hx : Canvas.GetLeft(halo) + halo.Width / 2;
+            fromY = instant ? hy : Canvas.GetTop(halo) + halo.Height / 2;
+            toX = hx; toY = hy;
+            moveStart = DateTime.Now;
+            stepStart = DateTime.Now;
+
+            capProg.Text = (i + 1) + " / " + steps.Count;
+            capTitle.Text = st.Title;
+            capDesc.Text = st.Desc;
+            nextBtn.Content = (i == steps.Count - 1) ? "완료" : "다음";
+            caption.Measure(new Size(capW, double.PositiveInfinity));
+            capH = caption.DesiredSize.Height;
+            // 캡션은 화면 아래쪽 가운데 고정 (링과 겹치지 않게)
+            double capX = cx - capW / 2;
+            double capY = Math.Min(Height - capH - 70, Math.Max(cy + R + 80, Height - capH - 70));
+            if (capX < 20) capX = 20;
+            if (capX + capW > Width - 20) capX = Width - 20 - capW;
+            Canvas.SetLeft(caption, capX);
+            Canvas.SetTop(caption, capY);
+            caption.Opacity = instant ? 1 : 0;
+        }
+
+        void Advance() { if (cur >= steps.Count - 1) Close(); else GoTo(cur + 1, false); }
+        void Back() { if (cur > 0) GoTo(cur - 1, false); }
+
+        void OnRender(object sender, EventArgs e)
+        {
+            double now = DateTime.Now.Ticks / 10000.0;
+            double mv = (DateTime.Now - moveStart).TotalMilliseconds;
+            double p = Math.Min(1, mv / 340.0);
+            double ease = 1 - Math.Pow(1 - p, 3); // easeOutCubic
+            double hx = fromX + (toX - fromX) * ease;
+            double hy = fromY + (toY - fromY) * ease;
+            Canvas.SetLeft(halo, hx - halo.Width / 2);
+            Canvas.SetTop(halo, hy - halo.Height / 2);
+            double pulse = 1 + 0.06 * Math.Sin(now / 420.0);
+            haloScale.ScaleX = haloScale.ScaleY = pulse;
+            halo.Opacity = 0.65 + 0.25 * (0.5 + 0.5 * Math.Sin(now / 420.0));
+
+            if (caption.Opacity < 1) caption.Opacity = Math.Min(1, caption.Opacity + 0.12);
+
+            if ((DateTime.Now - stepStart).TotalMilliseconds > dwellMs)
+            {
+                if (cur >= steps.Count - 1) { Close(); return; }
+                GoTo(cur + 1, false);
+            }
+        }
+
+        protected override void OnClosed(EventArgs e)
+        {
+            if (running) { CompositionTarget.Rendering -= OnRender; running = false; }
+            base.OnClosed(e);
         }
     }
 
@@ -5062,6 +5372,10 @@ namespace ClaudeRing
             hk.LostFocus += (s, e) => applyHk();
             hk.KeyDown += (s, e) => { if (e.Key == Key.Enter) applyHk(); };
             sp.Children.Add(SRow("링 여는 단축키", "Logi Options+에서 휠 클릭에 같은 단축키를 지정하세요", hk));
+
+            var tourBtn = SBtn("둘러보기", false, false);
+            tourBtn.Click += (s, e) => { Close(); app.ShowTour(); };
+            sp.Children.Add(SRow("가이드 둘러보기", "링과 기능을 애니메이션으로 다시 안내해요", tourBtn));
 
             sp.Children.Add(Grp("시작"));
             sp.Children.Add(SRow("Windows 시작 시 자동 실행", null, Switch(IsAutoStart(), on => SetAutoStart(on))));
