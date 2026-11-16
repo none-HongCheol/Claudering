@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.3  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.4  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -478,7 +478,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.3";
+        public const string APP_VERSION = "0.9.4";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         public volatile bool UpdateAvailable;
@@ -1449,6 +1449,10 @@ namespace ClaudeRing
 
         Shapes.Ellipse halo;
         ScaleTransform haloScale;
+        Shapes.Path cursor;            // 시연용 가상 커서
+        Shapes.Ellipse clickRipple;    // 클릭 물결
+        double curFromX, curFromY, curToX, curToY;
+        const double CURSOR_MOVE_MS = 620;
         Border caption;
         TextBlock capProg, capTitle, capDesc;
         Button nextBtn;
@@ -1605,6 +1609,22 @@ namespace ClaudeRing
             haloScale = new ScaleTransform(1, 1);
             halo.RenderTransform = haloScale;
             root.Children.Add(halo);
+
+            // 클릭 물결 (버블 위에서 퍼졌다 사라짐)
+            clickRipple = new Shapes.Ellipse { IsHitTestVisible = false, Opacity = 0 };
+            clickRipple.Stroke = new SolidColorBrush(accent);
+            clickRipple.StrokeThickness = 3;
+            root.Children.Add(clickRipple);
+
+            // 가상 커서 (끝점이 로컬 0,0 에 오도록 그림)
+            cursor = new Shapes.Path { IsHitTestVisible = false };
+            cursor.Data = Geometry.Parse("M0,0 L0,17 L4.2,12.8 L7.3,19 L9.6,18 L6.5,11.9 L12,11.9 Z");
+            cursor.Fill = Brushes.White;
+            cursor.Stroke = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x22));
+            cursor.StrokeThickness = 1.3;
+            cursor.RenderTransform = new ScaleTransform(1.4, 1.4); // 원점(0,0) 기준 확대 → 끝점 유지
+            cursor.Effect = new DropShadowEffect { BlurRadius = 6, ShadowDepth = 2, Opacity = 0.5, Direction = 270 };
+            root.Children.Add(cursor);
         }
 
         void BuildCaption()
@@ -1665,6 +1685,10 @@ namespace ClaudeRing
             fromX = instant ? hx : Canvas.GetLeft(halo) + halo.Width / 2;
             fromY = instant ? hy : Canvas.GetTop(halo) + halo.Height / 2;
             toX = hx; toY = hy;
+            // 커서는 (이전 위치 또는 화면 아래)에서 이 버블로 이동해 클릭을 시연
+            curFromX = instant ? (cx + 30) : curToX;
+            curFromY = instant ? (cy + R + 70) : curToY;
+            curToX = hx; curToY = hy;
             moveStart = DateTime.Now;
             stepStart = DateTime.Now;
 
@@ -1700,6 +1724,28 @@ namespace ClaudeRing
             double pulse = 1 + 0.06 * Math.Sin(now / 420.0);
             haloScale.ScaleX = haloScale.ScaleY = pulse;
             halo.Opacity = 0.65 + 0.25 * (0.5 + 0.5 * Math.Sin(now / 420.0));
+
+            // 가상 커서 이동 (버블로 미끄러지듯)
+            double pc = Math.Min(1, mv / CURSOR_MOVE_MS);
+            double ec = 1 - Math.Pow(1 - pc, 3);
+            double curX = curFromX + (curToX - curFromX) * ec;
+            double curY = curFromY + (curToY - curFromY) * ec;
+            Canvas.SetLeft(cursor, curX);   // 끝점이 로컬 0,0 → 버블 중심에 닿음
+            Canvas.SetTop(cursor, curY);
+
+            // 도착 후 클릭 물결 반복 (이렇게 클릭하면 돼요)
+            if (pc >= 1)
+            {
+                double since = mv - CURSOR_MOVE_MS;
+                double period = 1400.0;
+                double rp = (since % period) / period;
+                double rr = 9 + 26 * rp;
+                clickRipple.Width = clickRipple.Height = rr * 2;
+                Canvas.SetLeft(clickRipple, curToX - rr);
+                Canvas.SetTop(clickRipple, curToY - rr);
+                clickRipple.Opacity = Math.Max(0, 0.7 * (1 - rp));
+            }
+            else clickRipple.Opacity = 0;
 
             if (caption.Opacity < 1) caption.Opacity = Math.Min(1, caption.Opacity + 0.12);
 
