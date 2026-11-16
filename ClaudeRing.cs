@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.1  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.2  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -478,7 +478,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.1";
+        public const string APP_VERSION = "0.9.2";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         public volatile bool UpdateAvailable;
