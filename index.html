@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude 액션링</title>
+<style>
+body{margin:0;background:#fbfaf7;color:#1b1b1d;font:15px/1.75 "Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif}
+main{max-width:720px;margin:0 auto;padding:56px 20px 72px}
+h1{font-size:30px;margin:0 0 6px}
+h2{font-size:18px;margin:34px 0 8px}
+p,li{color:#33343a}
+.dot{display:inline-block;width:13px;height:13px;border-radius:50%;background:#e0592a;margin-right:9px;vertical-align:middle}
+.ver{color:#6b6b70;font-size:13px;margin:0 0 26px}
+.btn{display:inline-block;background:#1b1b1d;color:#fbfaf7;text-decoration:none;font-weight:700;padding:13px 22px;border-radius:12px;font-size:15px}
+.btn:hover{background:#000}
+ol,ul{padding-left:20px}
+code{background:#f0ede6;border-radius:5px;padding:1px 6px;font-size:13px}
+.muted{color:#6b6b70;font-size:13px}
+hr{border:none;border-top:1px solid #ebe8e1;margin:30px 0}
+</style>
+</head>
+<body>
+<main>
+<h1><span class="dot"></span>Claude 액션링</h1>
+<p class="ver">버전 0.9.0 · 팀 내부용 · Windows 10/11</p>
+
+<p>마우스 휠 클릭으로 커서 자리에 원형 메뉴를 띄워, 파일 검색·파일 정리·메모·화면 캡처·Claude 물어보기를 빠르게 쓰는 데스크톱 도구입니다.</p>
+
+<p style="margin:26px 0"><a class="btn" href="ClaudeRing_설치.zip" download>⬇ 설치 파일 내려받기</a></p>
+
+<h2>설치</h2>
+<ol>
+  <li>내려받은 <code>ClaudeRing_설치.zip</code> 의 압축을 풀어요.</li>
+  <li><code>설치.bat</code> 을 더블클릭해요. (파이썬 등 추가 설치 없음)</li>
+  <li>바탕화면·시작 메뉴에 바로가기가 생기고, 바로 실행돼요.</li>
+</ol>
+<p class="muted">처음에 "Windows의 PC 보호" 경고가 나오면 직접 만든 프로그램이라 그런 거예요. "추가 정보 → 실행" 을 누르면 됩니다.</p>
+
+<h2>사용</h2>
+<ul>
+  <li>단축키 <code>Ctrl+Alt+Shift+F12</code> 로 마우스 자리에 링이 열려요.</li>
+  <li>로지텍 마우스는 Logi Options+ 에서 휠 클릭에 위 단축키를 지정하세요.</li>
+  <li>물어보기·열기는 각자 로그인한 Claude 계정으로 열려요. (API 키 필요 없음)</li>
+</ul>
+
+<h2>자동 업데이트</h2>
+<p>설정 → 일반 → 업데이트 → "업데이트 주소" 에 아래 주소를 넣으면, 새 버전이 나올 때 자동으로 확인하고 받아서 설치해요.</p>
+<p><code id="vurl">이 페이지 주소 + /version.json</code></p>
+<script>try{document.getElementById('vurl').textContent=location.href.replace(/index\.html$/,'').replace(/\/?$/,'/')+'version.json';}catch(e){}</script>
+
+<hr>
+<p class="muted">모든 정보는 사용자 PC와 각 서비스 사이에서만 오가며, 제작자가 수집하지 않습니다. · 비공개 배포</p>
+</main>
+</body>
+</html>
