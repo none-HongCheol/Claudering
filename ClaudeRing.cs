@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.5  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.6  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -90,8 +90,10 @@ namespace ClaudeRing
         public string UpdateUrl = "";                   // version.json 주소 (비우면 업데이트 확인 안 함)
         public string WindowMonitor = "cursor";         // cursor | 1 | 2 ... (창을 띄울 모니터)
         public string WindowCorner = "cursor";          // cursor | center | topleft | topright | bottomleft | bottomright
-        public string[] Slots = new string[] { "ask", "everything", "memo", "organize", "capture", null, null, null, null };
+        public string[] Slots = new string[] { "ask", "everything", "memo", "organize", "capture", "launch", null, null, null };
         public string ClaudeAppPath = "";
+        public string LaunchPath = "";                  // 앱 열기 버블: 실행할 외부 프로그램 경로
+        public string LaunchArgs = "";                  // 앱 열기 버블: 실행 인자 (선택)
         public bool TourDone = false;                   // 첫 실행 가이드 투어를 봤는지
         public string EverythingPath = "";
         public string[] SearchRoots = new string[0];     // (고급) 비우면 모든 로컬 드라이브
@@ -174,6 +176,8 @@ namespace ClaudeRing
                 if (obj.TryGetValue("search_keep_query", out v) && v is bool) cfg.SearchKeepQuery = (bool)v;
                 if (obj.TryGetValue("search_default_filter", out v) && v != null) { try { cfg.SearchDefaultFilter = Convert.ToInt32(v, CultureInfo.InvariantCulture); } catch (Exception) { } }
                 if (obj.TryGetValue("tour_done", out v) && v is bool) cfg.TourDone = (bool)v;
+                if (obj.TryGetValue("launch_path", out v) && v is string) cfg.LaunchPath = (string)v;
+                if (obj.TryGetValue("launch_args", out v) && v is string) cfg.LaunchArgs = (string)v;
                 if (obj.TryGetValue("claude_app_path", out v) && v is string) cfg.ClaudeAppPath = (string)v;
                 if (obj.TryGetValue("everything_path", out v) && v is string) cfg.EverythingPath = (string)v;
                 if (obj.TryGetValue("search_roots", out v)) cfg.SearchRoots = Strings(v);
@@ -262,6 +266,8 @@ namespace ClaudeRing
             sb.AppendLine("  \"search_default_filter\": " + SearchDefaultFilter.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"slots\": [" + string.Join(", ", Slots.Select(s => Q(s)).ToArray()) + "],");
             sb.AppendLine("  \"tour_done\": " + B(TourDone) + ",");
+            sb.AppendLine("  \"launch_path\": " + Q(LaunchPath) + ",");
+            sb.AppendLine("  \"launch_args\": " + Q(LaunchArgs) + ",");
             sb.AppendLine("  \"claude_app_path\": " + Q(ClaudeAppPath) + ",");
             sb.AppendLine("  \"everything_path\": " + Q(EverythingPath) + ",");
             sb.AppendLine("  \"index_local_drives\": " + B(IndexLocalDrives) + ",");
@@ -478,7 +484,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.5";
+        public const string APP_VERSION = "0.9.6";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         // --- 앱 아이콘 (D2 라운드 노드) · ICO를 base64로 내장 ---
@@ -548,12 +554,14 @@ namespace ClaudeRing
             Add(new ActionDef("memo", "메모", ""));
             Add(new ActionDef("organize", "파일 정리", ""));
             Add(new ActionDef("capture", "화면 캡처", ""));
+            Add(new ActionDef("launch", "앱 열기", ""));
             // 기능을 만들면 여기서 Handler 를 연결합니다.
             Actions["everything"].Handler = FileSearchWindow.Open;
             Actions["organize"].Handler = OrganizeWindow.Open;
             Actions["capture"].Handler = Capture.Start;
             Actions["ask"].Handler = AskWindow.Open;
             Actions["memo"].Handler = Memo.Open;
+            Actions["launch"].Handler = LaunchApp;
         }
 
         void Add(ActionDef a) { Actions[a.Id] = a; }
@@ -629,6 +637,34 @@ namespace ClaudeRing
                 handled = true;
             }
             return IntPtr.Zero;
+        }
+
+        // 앱 열기 버블: 설정에 지정한 외부 프로그램을 실행
+        static void LaunchApp(RingApp app)
+        {
+            string path = (app.Cfg.LaunchPath ?? "").Trim();
+            if (string.IsNullOrEmpty(path))
+            {
+                app.Toast("열 프로그램을 먼저 지정하세요 · 설정 → 앱 열기", 2600);
+                app.OpenSettings("launch");
+                return;
+            }
+            try
+            {
+                string args = (app.Cfg.LaunchArgs ?? "").Trim();
+                var psi = new ProcessStartInfo(path) { UseShellExecute = true };
+                if (args.Length > 0) psi.Arguments = args;
+                string wd = "";
+                try { wd = IO.Path.GetDirectoryName(path); } catch (Exception) { }
+                if (!string.IsNullOrEmpty(wd) && IO.Directory.Exists(wd)) psi.WorkingDirectory = wd;
+                Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                app.Log("앱 열기 오류: " + ex);
+                app.Toast("프로그램을 열지 못했어요: " + ex.Message + " · 경로를 확인하세요", 4000);
+                app.OpenSettings("launch");
+            }
         }
 
         public void RunAction(string id)
@@ -5367,6 +5403,8 @@ namespace ClaudeRing
                 f.WindowMonitor = cfg.WindowMonitor;
                 f.WindowCorner = cfg.WindowCorner;
                 f.ClaudeAppPath = cfg.ClaudeAppPath;
+                f.LaunchPath = cfg.LaunchPath;
+                f.LaunchArgs = cfg.LaunchArgs;
                 f.Hotkey = cfg.Hotkey;
                 f.Save();
                 app.Cfg = f;
@@ -5737,6 +5775,53 @@ namespace ClaudeRing
                     reset.Click += (s, e) => { cfg.CaptureFolder = ""; Changed(); ShowTab(currentTab); };
                     sp.Children.Add(SRow("기본 위치", "사진\\ClaudeRing 캡처 폴더로 되돌려요", reset));
                 }
+            }
+            else if (id == "launch")
+            {
+                sp.Children.Add(Grp("앱 열기"));
+                sp.Children.Add(new TextBlock { Text = "이 버블을 누르면 아래에 지정한 프로그램이 실행돼요. 자주 쓰는 프로그램(예: CAD · Excel · 뷰어)의 실행 파일(.exe)이나 바로가기(.lnk)를 고르세요.", FontSize = 11.5, Foreground = Theme.B(Theme.Muted), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) });
+
+                string shown = string.IsNullOrEmpty(cfg.LaunchPath) ? "아직 지정 안 함" : cfg.LaunchPath;
+                var browse = SBtn("찾아보기…", false, false);
+                var testBtn = SBtn("지금 열기", false, false);
+                var pathRow = SRow("실행 파일", shown, null);
+                var btns = new StackPanel { Orientation = Orientation.Horizontal };
+                browse.Margin = new Thickness(0, 0, 6, 0);
+                btns.Children.Add(browse);
+                btns.Children.Add(testBtn);
+                ((Grid)pathRow.Child).Children.Add(btns);
+                Grid.SetColumn(btns, 1);
+                browse.Click += (s, e) =>
+                {
+                    var dlg = new Microsoft.Win32.OpenFileDialog { Title = "열 프로그램을 고르세요", Filter = "프로그램·바로가기 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|모든 파일 (*.*)|*.*" };
+                    if (!string.IsNullOrEmpty(cfg.LaunchPath)) { try { dlg.InitialDirectory = IO.Path.GetDirectoryName(cfg.LaunchPath); } catch (Exception) { } }
+                    if (dlg.ShowDialog(this) == true)
+                    {
+                        cfg.LaunchPath = dlg.FileName;
+                        // 이름을 안 바꿨으면 프로그램 이름을 표시 이름으로 제안
+                        string curLbl; cfg.BubbleLabels.TryGetValue("launch", out curLbl);
+                        if (string.IsNullOrWhiteSpace(curLbl))
+                        {
+                            try { cfg.BubbleLabels["launch"] = IO.Path.GetFileNameWithoutExtension(dlg.FileName); } catch (Exception) { }
+                        }
+                        Changed(); ShowTab(currentTab);
+                    }
+                };
+                testBtn.IsEnabled = !string.IsNullOrEmpty(cfg.LaunchPath);
+                testBtn.Click += (s, e) => { SaveNow(); app.RunAction("launch"); };
+                sp.Children.Add(pathRow);
+
+                var argBox = new TextBox { Text = cfg.LaunchArgs ?? "", Width = 260, ToolTip = "비워 둬도 돼요. 예: 열 파일 경로나 옵션" };
+                argBox.TextChanged += (s, e) => { cfg.LaunchArgs = argBox.Text; Changed(); };
+                sp.Children.Add(SRow("실행 인자 (선택)", "프로그램에 함께 넘길 옵션·파일 경로", argBox));
+
+                if (!string.IsNullOrEmpty(cfg.LaunchPath))
+                {
+                    var clear = SBtn("지정 해제", false, false);
+                    clear.Click += (s, e) => { cfg.LaunchPath = ""; cfg.LaunchArgs = ""; Changed(); ShowTab(currentTab); };
+                    sp.Children.Add(SRow("초기화", "지정한 프로그램을 비워요", clear));
+                }
+                sp.Children.Add(new TextBlock { Text = "여러 프로그램을 각각 다른 버블로 두고 싶으면 알려 주세요 — 지금은 한 개를 지원해요.", FontSize = 11, Foreground = Theme.B(Theme.Muted), Margin = new Thickness(0, 12, 0, 0), TextWrapping = TextWrapping.Wrap });
             }
             else if (a.Handler == null)
             {
