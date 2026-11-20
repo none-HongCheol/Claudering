@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.6  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.7  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -351,6 +351,13 @@ namespace ClaudeRing
             return sb.ToString();
         }
 
+        public static string TitleOf(IntPtr h)
+        {
+            var sb = new StringBuilder(512);
+            GetWindowText(h, sb, sb.Capacity);
+            return sb.ToString();
+        }
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         struct SHARE_INFO_1
         {
@@ -484,7 +491,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.6";
+        public const string APP_VERSION = "0.9.7";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         // --- 앱 아이콘 (D2 라운드 노드) · ICO를 base64로 내장 ---
@@ -734,6 +741,10 @@ namespace ClaudeRing
                 object shell = Activator.CreateInstance(t);
                 object wins = t.InvokeMember("Windows", BindingFlags.InvokeMethod, null, shell, null);
                 int count = Convert.ToInt32(Prop(wins, "Count"));
+                // Windows 11 탭 탐색기: 한 창(HWND)에 탭마다 항목이 따로 잡히고 HWND는 모두 같음.
+                // 창 제목(= 활성 탭 폴더 이름)과 끝 폴더명이 일치하는 항목을 우선 선택, 없으면 첫 항목.
+                string title = (Native.TitleOf(hwnd) ?? "").Trim();
+                string firstPath = null, matchPath = null;
                 for (int i = 0; i < count; i++)
                 {
                     object w = wins.GetType().InvokeMember("Item", BindingFlags.InvokeMethod, null, wins, new object[] { i });
@@ -743,8 +754,18 @@ namespace ClaudeRing
                     if (h != target) continue;
                     object self = Prop(Prop(Prop(w, "Document"), "Folder"), "Self");
                     string path = Prop(self, "Path") as string;
-                    if (!string.IsNullOrEmpty(path) && IO.Directory.Exists(path)) return path;
+                    if (string.IsNullOrEmpty(path) || !IO.Directory.Exists(path)) continue;
+                    if (firstPath == null) firstPath = path;
+                    string leaf = "";
+                    try { leaf = IO.Path.GetFileName(path.TrimEnd('\\', '/')); } catch (Exception) { }
+                    if (title.Length > 0 && leaf.Length > 0 &&
+                        (string.Equals(title, leaf, StringComparison.OrdinalIgnoreCase) ||
+                         title.StartsWith(leaf + " ", StringComparison.OrdinalIgnoreCase) ||
+                         title.EndsWith("\\" + leaf, StringComparison.OrdinalIgnoreCase) ||
+                         title.EndsWith(leaf, StringComparison.OrdinalIgnoreCase)))
+                    { matchPath = path; break; }
                 }
+                return matchPath ?? firstPath;
             }
             catch (Exception ex) { Log("탐색기 폴더 확인 실패: " + ex.Message); }
             return null;
