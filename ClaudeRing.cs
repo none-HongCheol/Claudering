@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.8  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.9  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -491,7 +491,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.8";
+        public const string APP_VERSION = "0.9.9";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         // --- 앱 아이콘 (D2 라운드 노드) · ICO를 base64로 내장 ---
@@ -668,7 +668,7 @@ namespace ClaudeRing
             }
             catch (Exception ex)
             {
-                app.Log("앱 열기 오류: " + ex);
+                Log("앱 열기 오류: " + ex);
                 app.Toast("프로그램을 열지 못했어요: " + ex.Message + " · 경로를 확인하세요", 4000);
                 app.OpenSettings("launch");
             }
