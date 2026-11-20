@@ -1,4 +1,4 @@
-// ClaudeRing-Source 0.9.7  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
+// ClaudeRing-Source 0.9.8  (자동 업데이트 검증용 표시 — 이 줄을 지우지 마세요)
 // Claude 액션링 (Windows) - 1단계: 링 본체
 // 빌드: build.bat 더블클릭 → ClaudeRing.exe 생성 (Windows 기본 .NET Framework 컴파일러 사용, 설치 필요 없음)
 //
@@ -491,7 +491,7 @@ namespace ClaudeRing
             GC.KeepAlive(mutex);
         }
 
-        public const string APP_VERSION = "0.9.7";
+        public const string APP_VERSION = "0.9.8";
         public const string DEFAULT_UPDATE_URL = "https://none-hongcheol.github.io/Claudering/version.json";
 
         // --- 앱 아이콘 (D2 라운드 노드) · ICO를 base64로 내장 ---
@@ -5394,6 +5394,21 @@ namespace ClaudeRing
         // ----- 저장 (바로 적용)
         void Changed() { saveTimer.Stop(); saveTimer.Start(); }
 
+        // 눌린 키 → ParseHotkey 가 이해하는 토큰
+        static string HotkeyToken(Key key)
+        {
+            if (key >= Key.F1 && key <= Key.F24) return "f" + (key - Key.F1 + 1);
+            if (key >= Key.A && key <= Key.Z) return ((char)('a' + (key - Key.A))).ToString();
+            if (key >= Key.D0 && key <= Key.D9) return ((char)('0' + (key - Key.D0))).ToString();
+            if (key >= Key.NumPad0 && key <= Key.NumPad9) return ((char)('0' + (key - Key.NumPad0))).ToString();
+            if (key == Key.Space) return "space";
+            if (key == Key.Insert) return "insert";
+            if (key == Key.Home) return "home";
+            if (key == Key.End) return "end";
+            if (key == Key.Pause) return "pause";
+            return null;
+        }
+
         void SaveNow()
         {
             try
@@ -5503,19 +5518,44 @@ namespace ClaudeRing
             sp.Children.Add(SRow("현재 버전", "v" + RingApp.APP_VERSION + " · 켤 때와 30분마다 자동 확인", upBtn));
 
             sp.Children.Add(Grp("단축키"));
-            var hk = new TextBox { Text = cfg.Hotkey, Width = 190 };
-            Action applyHk = () =>
+            var hk = new TextBox { Text = cfg.Hotkey.ToUpperInvariant(), Width = 220, IsReadOnly = true, Cursor = Cursors.Hand, TextAlignment = TextAlignment.Center };
+            hk.ToolTip = "이 칸을 클릭한 뒤 원하는 키 조합을 누르세요 (예: Ctrl+Alt+Shift+F12)";
+            bool[] capturing = { false };
+            hk.GotKeyboardFocus += (s, e) => { capturing[0] = true; hk.Text = "키 조합을 누르세요…"; };
+            hk.LostKeyboardFocus += (s, e) => { capturing[0] = false; hk.Text = cfg.Hotkey.ToUpperInvariant(); };
+            hk.PreviewKeyDown += (s, e) =>
             {
-                uint m, v;
-                string t = hk.Text.Trim();
-                if (t == cfg.Hotkey) return;
-                if (!Native.ParseHotkey(t, out m, out v)) { app.Toast("단축키 형식이 맞지 않아요 (예: ctrl+alt+shift+f12)", 2600); hk.Text = cfg.Hotkey; return; }
-                cfg.Hotkey = t;
+                if (!capturing[0]) return;
+                var key = (e.Key == Key.System) ? e.SystemKey : e.Key;
+                if (key == Key.LeftCtrl || key == Key.RightCtrl || key == Key.LeftAlt || key == Key.RightAlt ||
+                    key == Key.LeftShift || key == Key.RightShift || key == Key.LWin || key == Key.RWin || key == Key.System)
+                { e.Handled = true; return; } // 수정키만 눌린 상태 → 대기
+                e.Handled = true;
+                if (key == Key.Escape) { hk.Text = cfg.Hotkey.ToUpperInvariant(); Keyboard.ClearFocus(); return; }
+                string main = HotkeyToken(key);
+                if (main == null) { app.Toast("지원하지 않는 키예요 · 문자·숫자·F1~F24·Space 등", 2200); return; }
+                var parts = new List<string>();
+                var mods = Keyboard.Modifiers;
+                if ((mods & ModifierKeys.Control) != 0) parts.Add("ctrl");
+                if ((mods & ModifierKeys.Alt) != 0) parts.Add("alt");
+                if ((mods & ModifierKeys.Shift) != 0) parts.Add("shift");
+                if ((mods & ModifierKeys.Windows) != 0) parts.Add("win");
+                if (main.Length == 1 && parts.Count == 0) { app.Toast("문자·숫자 키는 Ctrl/Alt/Shift와 함께 눌러 주세요", 2600); return; }
+                parts.Add(main);
+                string combo = string.Join("+", parts.ToArray());
+                uint mm, vv;
+                if (!Native.ParseHotkey(combo, out mm, out vv)) return;
+                cfg.Hotkey = combo;
+                hk.Text = combo.ToUpperInvariant();
                 Changed();
+                Keyboard.ClearFocus();
             };
-            hk.LostFocus += (s, e) => applyHk();
-            hk.KeyDown += (s, e) => { if (e.Key == Key.Enter) applyHk(); };
-            sp.Children.Add(SRow("링 여는 단축키", "Logi Options+에서 휠 클릭에 같은 단축키를 지정하세요", hk));
+            var hkReset = SBtn("기본값", false, false);
+            hkReset.Click += (s, e) => { cfg.Hotkey = "ctrl+alt+shift+f12"; hk.Text = cfg.Hotkey.ToUpperInvariant(); Changed(); };
+            var hkWrap = new StackPanel { Orientation = Orientation.Horizontal };
+            hk.Margin = new Thickness(0, 0, 6, 0);
+            hkWrap.Children.Add(hk); hkWrap.Children.Add(hkReset);
+            sp.Children.Add(SRow("단축키 설정", "이 칸을 클릭하고 원하는 키 조합을 누르세요 · Logi Options+ 등 마우스 버튼에도 같은 조합을 지정하세요", hkWrap));
 
             var tourBtn = SBtn("둘러보기", false, false);
             tourBtn.Click += (s, e) => { Close(); app.ShowTour(); };
